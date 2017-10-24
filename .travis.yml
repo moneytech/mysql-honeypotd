@@ -7,16 +7,25 @@ env:
   global:
   - CFLAGS="-O2 -g3 -std=c99 -Wall -Wextra -fvisibility=hidden -fno-strict-aliasing -Wno-unused-parameter"
   - CPPFLAGS="-D_DEFAULT_SOURCE"
+  - secure: "Ncw0YBas+KjKHZdwG28l5yFpwYmV/8hMxkMeO8j9QwBKaHvMPJy5/bgMZ74yHeNXS/EVCBNV234w0amfmxLQx6wyDhcVzvTW7AGKmbM0nl/uNQXKA5pgjJoKDjqltI52uWPT8CGeNt8Had/pPj2Ii0QE5wXKDJGJNzCG+UGjHDMtxaEsXVPSriippg5TabuDqLbxSMlste1jvAVAbMbvFBnYoKnNwUmDcOS8pYx4xwwJuBd6cRrE4w2IJetzlwvtxLaKO42A74WbDfkggJpC3KC+4d/VStJLEU5oMuwEj4yDY88AmZCEqTWC2H2lSxUi6Bd/toiG2OaRjjMi8gqrdKUhGeCxlYGhWrhj1E7iJe8/yczWYYPJAEYiVDTAItjuMdKY++Or9U8ks/XJVRSGXlfIl5TkFtM6R4D6moZbWZxAeEMXbxhafpR2sNS/99dLD2E9UESJACnnuNNtzn+QQPfssQUEMm2Buno6oHR3s1WWxgOnPWBRfOu6zryBqR2VlSKtdzIJCCj14VAZeer4oT8y3CRtnY7z7DTPSsoFWnZX9gJVrlUxdK0cFN4WDM+SJDFG5merH1zTtBYcChC2HKwOXhGNHmGET67U/9qpMyZlFqGETOs40s/NFbHac/oBqUJV8PcXC378YeyzwX2RwO4rTy1HW0NJUQnh8fhGZUc="
+
+compiler:
+  - gcc
+
+before_install:
+  - echo -n | openssl s_client -connect scan.coverity.com:443 | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' | sudo tee -a /etc/ssl/certs/ca-
+
+script:
+  - make
 
 addons:
   apt:
     packages:
-    - valgrind
     - libev-dev
-
-compiler:
-  - gcc
-  - clang
-
-script:
-  - make
+  coverity_scan:
+    project:
+      name: "sjinks/mysql-honeypotd"
+      description: "Low-Interaction MySQL Honeypot"
+    notification_email: volodymyr@wildwolf.name
+    build_command: "make"
+    branch_pattern: coverity
