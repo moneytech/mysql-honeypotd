@@ -85,7 +85,11 @@ void new_connection(struct ev_loop* loop, struct ev_io* w, int revents)
     if (revents & EV_READ) {
         int sock = accept(w->fd, &sa, &len);
         if (sock != -1) {
-            make_nonblocking(sock);
+            if (-1 == make_nonblocking(sock)) {
+                syslog(LOG_DAEMON | LOG_WARNING, "new_connection(): failed to make the accept()'ed socket non-blocking: %m");
+                close(sock);
+                return;
+            }
 
             struct connection_t* conn = (struct connection_t*)calloc(1, sizeof(struct connection_t));
             conn->state = NEW_CONN;
@@ -102,8 +106,14 @@ void new_connection(struct ev_loop* loop, struct ev_io* w, int revents)
             }
 
             len = sizeof(sa);
-            getsockname(sock, &sa, &len);
-            get_ip_port(&sa, conn->my_ip, &conn->my_port);
+            if (-1 != getsockname(sock, &sa, &len)) {
+                get_ip_port(&sa, conn->my_ip, &conn->my_port);
+            }
+            else {
+                syslog(LOG_DAEMON | LOG_WARNING, "WARNING: getsockname() failed: %m");
+                conn->my_port = atoi(globals.bind_port);
+                memcpy(conn->my_ip, "0.0.0.0", sizeof("0.0.0.0"));
+            }
 
             syslog(
                 LOG_DAEMON | LOG_INFO,
