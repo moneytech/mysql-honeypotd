@@ -15,15 +15,19 @@
 #include "cmdline.h"
 
 static struct option long_options[] = {
-    { "address",   required_argument, NULL, 'b' },
-    { "port",      required_argument, NULL, 'p' },
-    { "pid",       required_argument, NULL, 'P' },
-    { "name",      required_argument, NULL, 'n' },
-    { "user",      required_argument, NULL, 'u' },
-    { "chroot",    required_argument, NULL, 'c' },
-    { "group",     required_argument, NULL, 'g' },
-    { "help",      no_argument,       NULL, 'h' },
-    { "version",   no_argument,       NULL, 'v' }
+    { "address",    required_argument, NULL, 'b' },
+    { "port",       required_argument, NULL, 'p' },
+    { "pid",        required_argument, NULL, 'P' },
+    { "name",       required_argument, NULL, 'n' },
+    { "user",       required_argument, NULL, 'u' },
+    { "group",      required_argument, NULL, 'g' },
+    { "chroot",     required_argument, NULL, 'c' },
+    { "delay",      required_argument, NULL, 'd' },
+    { "foreground", no_argument,       NULL, 'f' },
+    { "no-syslog",  no_argument,       NULL, 'x' },
+    { "setver",     required_argument, NULL, 's' },
+    { "help",       no_argument,       NULL, 'h' },
+    { "version",    no_argument,       NULL, 'v' }
 };
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -36,9 +40,9 @@ static void usage()
         "Low-interaction MySQL honeypot\n\n"
         "Mandatory arguments to long options are mandatory for short options too.\n"
         "  -b, --address ADDRESS the IP address to bind to (default: 0.0.0.0)\n"
+        "                        (can be specified multiple times)\n"
         "  -p, --port PORT       the port to bind to (default: 3306)\n"
         "  -P, --pid FILE        the PID file\n"
-        "                        (default: /run/mysql-honeypotd/mysql-honeypotd.pid)\n"
         "  -n, --name NAME       the name of the daemon for syslog\n"
         "                        (default: mysql-honeypotd)\n"
         "  -u, --user USER       drop privileges and switch to this USER\n"
@@ -46,7 +50,13 @@ static void usage()
         "  -g, --group GROUP     drop privileges and switch to this GROUP\n"
         "                        (default: daemon or nogroup)\n"
         "  -c, --chroot DIR      chroot() into the specified DIR\n"
+        "  -s, --setver VERSION  report this MySQL server version\n"
+        "                        (default: 5.7.19)\n"
+        "  -d, --delay DELAY     Add DELAY seconds after each login attempt\n"
         "  -f, --foreground      do not daemonize\n"
+        "                        (forced if no PID file specified)\n"
+        "  -x, --no-syslog       log messages only to stderr\n"
+        "                        (only works with --foreground)\n"
         "  -h, --help            display this help and exit\n"
         "  -v, --version         output version information and exit\n\n"
         "NOTES:\n"
@@ -59,7 +69,7 @@ static void usage()
         "Please report bugs here: <https://github.com/sjinks/mysql-honeypotd/issues>\n"
     );
 
-    exit(0);
+    exit(EXIT_SUCCESS);
 }
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -68,31 +78,64 @@ __attribute__((noreturn))
 static void version()
 {
     printf(
-        "mysql-honeypotd 0.1\n"
-        "Copyright (c) 2017, Volodymyr Kolesnykov <volodymyr@wildwolf.name>\n"
+        "mysql-honeypotd 0.5.0\n"
+        "Copyright (c) 2017, 2020 Volodymyr Kolesnykov <volodymyr@wildwolf.name>\n"
         "License: MIT <http://opensource.org/licenses/MIT>\n"
     );
 
-    exit(0);
+    exit(EXIT_SUCCESS);
+}
+
+static void check_alloc(void* p, const char* api)
+{
+    if (!p) {
+        perror(api);
+        exit(EXIT_FAILURE);
+    }
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((malloc, returns_nonnull))
+#endif
+static char* my_strdup(const char *s)
+{
+    char* retval = strdup(s);
+    check_alloc(retval, "strdup");
+    return retval;
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((malloc, returns_nonnull))
+#endif
+static char* my_strndup(const char *s, size_t n)
+{
+    char* retval = strndup(s, n);
+    check_alloc(retval, "strndup");
+    return retval;
 }
 
 static void set_defaults(struct globals_t* g)
 {
-    if (!g->bind_address) {
-        g->bind_address = strdup("0.0.0.0");
-    }
-
-    if (!g->bind_port) {
-        g->bind_port = strdup("3306");
+    if (!g->server_ver) {
+        g->server_ver = my_strdup("5.7.19");
     }
 
     if (!g->daemon_name) {
-        g->daemon_name = strdup("mysql-honeypotd");
+        g->daemon_name = my_strdup("mysql-honeypotd");
     }
 
-    if (!g->pid_file) {
-        g->pid_file = strdup("/run/mysql-honeypotd/mysql-honeypotd.pid");
+    if (!g->nsockets) {
+        g->nalloc   = 1;
+        g->nsockets = 1;
+        g->bind_addresses = calloc(g->nalloc, sizeof(char*));
+        check_alloc(g->bind_addresses, "calloc");
+        g->bind_addresses[0] = my_strdup("0.0.0.0");
     }
+
+    if (!g->bind_port) {
+        g->bind_port = my_strdup("3306");
+    }
+
 }
 
 static void resolve_pid_file(struct globals_t* g)
@@ -119,36 +162,27 @@ static void resolve_pid_file(struct globals_t* g)
                 size_t cwd_len = strlen(cwd);
                 size_t pid_len = strlen(g->pid_file);
                 newbuf         = calloc(cwd_len + pid_len + 2, 1);
-                if (newbuf) {
-                    memcpy(newbuf, cwd, cwd_len);
-                    newbuf[cwd_len] = '/';
-                    memcpy(newbuf + cwd_len + 1, g->pid_file, pid_len);
-                }
-                else {
-                    fprintf(stderr, "ERROR: calloc(): out of memory\n");
-                    free(g->pid_file);
-                    g->pid_file = NULL;
-                    return;
-                }
-
+                check_alloc(newbuf, "calloc");
+                memcpy(newbuf, cwd, cwd_len);
+                newbuf[cwd_len] = '/';
+                memcpy(newbuf + cwd_len + 1, g->pid_file, pid_len);
                 free(g->pid_file);
                 g->pid_file = newbuf;
             }
             else {
                 fprintf(stderr, "ERROR: Failed to get the current directory: %s\n", strerror(errno));
                 free(g->pid_file);
-                g->pid_file = NULL;
-                return;
+                exit(EXIT_FAILURE);
             }
         }
 
         {
             int e;
-            char* pid_dir = strdup(g->pid_file);
-            char* pid_fil = strdup(g->pid_file);
+            char* pid_dir = my_strdup(g->pid_file);
+            char* pid_fil = my_strdup(g->pid_file);
             char* dir     = dirname(pid_dir);
             char* file    = basename(pid_fil);
-            g->pid_base   = strdup(file);
+            g->pid_base   = my_strdup(file);
             g->piddir_fd  = open(dir, O_DIRECTORY);
             e             = errno;
 
@@ -158,7 +192,7 @@ static void resolve_pid_file(struct globals_t* g)
                 free(g->pid_file);
                 free(pid_dir);
                 g->pid_file = NULL;
-                return;
+                exit(EXIT_FAILURE);
             }
 
             free(pid_dir);
@@ -170,34 +204,53 @@ void parse_options(int argc, char** argv, struct globals_t* g)
 {
     while (1) {
         int option_index = 0;
-        int c = getopt_long(argc, argv, "b:p:P:n:u:g:c:fhv", long_options, &option_index);
+        int c = getopt_long(argc, argv, "b:p:P:n:u:g:c:s:d:fxhv", long_options, &option_index);
         if (-1 == c) {
             break;
         }
 
         switch (c) {
             case 'b':
-                free(g->bind_address);
-                g->bind_address = strdup(optarg);
+                ++g->nsockets;
+                if (g->nsockets > g->nalloc) {
+                    g->nalloc += 16;
+                    char** tmp = realloc(g->bind_addresses, g->nalloc*sizeof(char*));
+                    check_alloc(tmp, "realloc");
+                    g->bind_addresses = tmp;
+                }
+
+                g->bind_addresses[g->nsockets-1] = my_strdup(optarg);
                 break;
 
             case 'p':
                 free(g->bind_port);
-                g->bind_port = strdup(optarg);
+                g->bind_port = my_strdup(optarg);
                 break;
 
             case 'P':
                 free(g->pid_file);
-                g->pid_file = strdup(optarg);
+                g->pid_file = my_strdup(optarg);
                 break;
 
             case 'n':
                 free(g->daemon_name);
-                g->daemon_name = strdup(optarg);
+                g->daemon_name = my_strdup(optarg);
+                break;
+
+            case 'd':
+                g->delay = atoi(optarg);
+                if (g->delay < 0) {
+                    g->delay = 0;
+                }
+
                 break;
 
             case 'f':
                 g->foreground = 1;
+                break;
+
+            case 'x':
+                g->no_syslog = 1;
                 break;
 
             case 'u': {
@@ -232,7 +285,12 @@ void parse_options(int argc, char** argv, struct globals_t* g)
 
             case 'c':
                 free(g->chroot_dir);
-                g->chroot_dir = strdup(optarg);
+                g->chroot_dir = my_strdup(optarg);
+                break;
+
+            case 's':
+                free(g->server_ver);
+                g->server_ver = my_strndup(optarg, 63);
                 break;
 
             case 'h':
@@ -259,7 +317,11 @@ void parse_options(int argc, char** argv, struct globals_t* g)
     set_defaults(g);
     resolve_pid_file(g);
 
-    if (!g->bind_address || !g->bind_port || !g->daemon_name || !g->pid_file) {
-        exit(1);
+    if (!g->pid_file) {
+        g->foreground = 1;
+    }
+
+    if (!g->foreground) {
+        g->no_syslog = 0;
     }
 }

@@ -1,3 +1,28 @@
+mysql-honeypotd (0.4.1) bionic; urgency=low
+
+  * Fix Bug #4
+
+ -- Volodymyr Kolesnykov <volodymyr@wildwolf.name>  Thu, 28 Feb 2019 14:56:00 +0200
+
+mysql-honeypotd (0.4.0) bionic; urgency=low
+
+  * Make PID file optional
+  * Support for multiple sockets
+
+ -- Volodymyr Kolesnykov <volodymyr@wildwolf.name>  Wed, 26 Dec 2018 20:56:00 +0200
+
+mysql-honeypotd (0.3.0) xenial; urgency=low
+
+  * Added --setver option to customize reported server version
+
+ -- Volodymyr Kolesnykov <volodymyr@wildwolf.name>  Sun, 19 Nov 2017 22:15:00 +0200
+
+mysql-honeypotd (0.2.1) xenial; urgency=low
+
+  * Various bug fixes
+
+ -- Volodymyr Kolesnykov <volodymyr@wildwolf.name>  Sun, 29 Oct 2017 22:46:00 +0200
+
 mysql-honeypotd (0.1.0) xenial; urgency=low
 
   * Initial release

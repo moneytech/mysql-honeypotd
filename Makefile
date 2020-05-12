@@ -5,10 +5,12 @@ SOURCES = \
 	globals.c \
 	connection.c \
 	utils.c \
+	protocol.c \
 	dfa.c \
 	pidfile.c \
 	cmdline.c \
-	daemon.c
+	daemon.c \
+	log.c
 
 OBJS        = $(patsubst %.c,%.o,$(SOURCES))
 DEPS        = $(patsubst %.o,%.d,$(OBJS))
